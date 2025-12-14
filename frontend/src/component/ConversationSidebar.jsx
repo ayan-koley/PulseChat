@@ -1,180 +1,198 @@
-import { useMemo, useState } from "react";
-import avatar from "../../public/avatar.png";
+import { useEffect, useState } from "react";
+import { useDebounce } from "../utils/useDebounce.js";
+import axios from "axios";
+import { DB_URI } from "../constant.js";
+import { useSelector } from "react-redux";
+import UserItem from "./UserItem.jsx";
+import { socket } from "../socket.js";
 
-const formatTime = (isoString) => {
-  const date = new Date(isoString);
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-};
-
-const getDisplayMeta = (conversation, loggedInUserId) => {
-  if (conversation.isGroup) {
-    return {
-      name: conversation.name || "Group Chat",
-      avatar: conversation.avatar || conversation.participants?.[0]?.avatar,
-    };
-  }
-
-  const other = conversation.participants?.find(
-    (p) => p._id !== loggedInUserId
-  );
-  return {
-    name: other?.fullName || "Chat",
-    avatar: other?.avatar,
-  };
-};
-
-const tabConfigs = [
-  { id: "all", label: "All" },
-  { id: "personal", label: "Personal" },
-  { id: "groups", label: "Groups" },
+const dummyConversations = [
+  {
+    _id: "c1",
+    user: {
+      _id: "u2",
+      name: "Ayan",
+      avatar: "https://i.pravatar.cc/150?img=3",
+    },
+    lastMessage: "Hey! Are you there?",
+    lastMessageAt: "10:32 AM",
+    unreadCount: 2,
+  },
+  {
+    _id: "c2",
+    user: {
+      _id: "u3",
+      name: "Rahul",
+      avatar: "https://i.pravatar.cc/150?img=5",
+    },
+    lastMessage: "Let’s meet tomorrow",
+    lastMessageAt: "Yesterday",
+    unreadCount: 0,
+  },
+  {
+    _id: "c3",
+    user: {
+      _id: "u4",
+      name: "Sneha",
+      avatar: "https://i.pravatar.cc/150?img=8",
+    },
+    lastMessage: "Okay 👍",
+    lastMessageAt: "Mon",
+    unreadCount: 1,
+  },
 ];
 
-const ConversationSidebar = ({
-  conversations,
-  filter,
-  setFilter,
-  activeConversationId,
-  setActiveConversationId,
-  loggedInUser,
-  onLogout,
-}) => {
-  const [query, setQuery] = useState("");
+export default function ConversationSidebar() {
+  const [activeId, setActiveId] = useState("c1");
+  const { accessToken } = useSelector((s) => s.auth);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return conversations
-      .filter((c) => {
-        if (filter === "personal" && c.isGroup) return false;
-        if (filter === "groups" && !c.isGroup) return false;
-        return true;
-      })
-      .filter((c) => {
-        const { name } = getDisplayMeta(c, loggedInUser._id);
-        return name.toLowerCase().includes(q);
-      });
-  }, [conversations, filter, query, loggedInUser._id]);
+  const [users, setUsers] = useState([]);
+  const [query, setQuery] = useState("");
+  const debounceQuery = useDebounce(query, 500);
+
+  useEffect(() => {
+    if (!debounceQuery.trim()) {
+      setUsers([]);
+      return;
+    }
+
+    const searchApiCall = async () => {
+      try {
+        const users = await axios
+          .post(
+            `${DB_URI}/user/search`,
+            {
+              query: debounceQuery,
+            },
+            {
+              withCredentials: true,
+            }
+          )
+          .then((d) => d.data)
+          .then((d) => d.data)
+          .then((d) => d.users);
+
+        setUsers(users);
+      } catch (err) {
+        console.error("serching user error ::: ", err.message);
+      }
+    };
+
+    searchApiCall();
+  }, [debounceQuery]);
+
+
+  const joinConversation = async(otherUserId) => {
+    try {
+      const conversation = await axios.post(`${DB_URI}/conversation/${otherUserId}`, {}, {
+        withCredentials: true
+      }).then(d => d.data).then(d => d.data).then(d => d.conversation);
+      
+      socket.emit("conversation:join", { conversationId: conversation._id });
+
+
+    } catch (error) {
+      
+    }
+  }
+
+  useEffect(() => {
+    if(!socket) return;
+
+    socket.on("user_joined", ({userId}) => {
+      console.log("User joined:", userId);
+    })
+
+    return () => socket.off('user_joined');
+  }, [])
+
 
   return (
-    <aside className="h-full border-r border-neutral-800 bg-neutral-900 flex flex-col">
-      <div className="flex items-center justify-between px-4 py-4 border-b border-neutral-800">
-        <div className="flex items-center gap-3">
-          <img
-            src={loggedInUser.avatar}
-            alt={loggedInUser.fullName}
-            className="w-10 h-10 rounded-full object-cover"
-          />
-          <div>
-            <p className="text-sm font-semibold text-neutral-100">
-              {loggedInUser.fullName}
-            </p>
-            <p className="text-xs text-neutral-400">Online</p>
+    <div className="w-96 h-screen bg-neutral-900 border-r border-neutral-800 flex flex-col">
+      {/* Header */}
+      {/* <div className="p-4 font-semibold text-lg border-b border-neutral-800 text-neutral-100">
+        Conversations
+      </div> */}
+
+      {/* Search */}
+      <div className="p-3 border-b border-neutral-800">
+        <input
+          type="text"
+          placeholder="Search users..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="w-full px-3 py-2 text-sm border border-neutral-800 bg-neutral-950 text-neutral-100 placeholder:text-neutral-500 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+        />
+      </div>
+
+      {/* Search Results */}
+      {users.length > 0 && (
+        <div className="border-b border-neutral-800">
+          <p className="text-xs font-medium text-neutral-400 px-3 py-2">
+            Search Results
+          </p>
+          <div className="px-2 space-y-1 max-h-64 overflow-y-auto">
+            {users.map((user) => (
+              <div key={user._id} onClick={() => joinConversation(user._id)}>
+                <UserItem
+                user={user}
+              />
+              </div>
+            ))}
           </div>
         </div>
-        {onLogout && (
-          <button
-            onClick={onLogout}
-            className="p-2 rounded-full hover:bg-neutral-800 text-neutral-400 hover:text-neutral-200 transition"
-            title="Logout"
-          >
-            🚪
-          </button>
-        )}
-      </div>
+      )}
 
-      <div className="px-4 pt-3">
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="Search conversations"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <span
-            className="absolute right-3 top-2.5 text-neutral-500"
-            aria-hidden
-          >
-            🔍
-          </span>
-        </div>
+      {/* Conversation List */}
+      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        {dummyConversations.map((conv) => {
+          const isActive = conv._id === activeId;
 
-        <div className="flex gap-2 mt-3">
-          {tabConfigs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setFilter(tab.id)}
-              aria-pressed={filter === tab.id}
-              className={`flex-1 rounded-full border px-3 py-1 text-sm transition ${
-                filter === tab.id
-                  ? "border-blue-500 bg-blue-900/40 text-blue-200"
-                  : "border-neutral-800 bg-neutral-900 text-neutral-200 hover:bg-neutral-800"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-2 py-4">
-        <div className="flex flex-col gap-2">
-          {filtered.map((conversation) => {
-            const meta = getDisplayMeta(conversation, loggedInUser._id);
-            const isActive = conversation._id === activeConversationId;
-            return (
-              <button
-                key={conversation._id}
-                type="button"
-                onClick={() => setActiveConversationId(conversation._id)}
-                className={`w-full text-left rounded-2xl px-3 py-3 transition flex gap-3 items-start ${
+          return (
+            <div
+              key={conv._id}
+              onClick={() => setActiveId(conv._id)}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all duration-200
+                ${
                   isActive
-                    ? "bg-blue-900/30 border border-blue-700"
-                    : "hover:bg-neutral-800"
+                    ? "bg-blue-900/30 border border-blue-700/50"
+                    : "border border-transparent hover:bg-neutral-800/60 hover:border-neutral-700/40"
                 }`}
-              >
-                <img
-                  src={avatar}
-                  alt={meta.name}
-                  className="w-12 h-12 rounded-full object-cover bg-neutral-800"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-neutral-100 truncate">
-                        {meta.name}
-                      </p>
-                      <p className="text-xs text-neutral-400 truncate">
-                        {conversation.lastMessage?.text || "No messages yet"}
-                      </p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="text-[11px] text-neutral-500">
-                        {conversation.lastMessageAt
-                          ? formatTime(conversation.lastMessageAt)
-                          : ""}
-                      </span>
-                      {conversation.unreadCount > 0 && (
-                        <span className="min-w-[22px] h-5 px-1.5 rounded-full bg-blue-500 text-white text-[10px] flex items-center justify-center">
-                          {conversation.unreadCount}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+            >
+              {/* Avatar */}
+              <img
+                src={conv.user.avatar}
+                alt={conv.user.name}
+                className="w-10 h-10 rounded-full object-cover ring-2 ring-neutral-700/50"
+              />
+
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex justify-between items-center">
+                  <p className="font-medium truncate text-neutral-100">
+                    {conv.user.name}
+                  </p>
+                  <span className="text-xs text-neutral-500">
+                    {conv.lastMessageAt}
+                  </span>
                 </div>
-              </button>
-            );
-          })}
 
-          {filtered.length === 0 && (
-            <p className="text-center text-sm text-neutral-400 py-6">
-              No conversations
-            </p>
-          )}
-        </div>
+                <div className="flex justify-between items-center">
+                  <p className="text-sm text-neutral-400 truncate">
+                    {conv.lastMessage}
+                  </p>
+
+                  {conv.unreadCount > 0 && (
+                    <span className="ml-2 text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full flex-shrink-0">
+                      {conv.unreadCount}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
-    </aside>
+    </div>
   );
-};
-
-export default ConversationSidebar;
+}
