@@ -28,7 +28,9 @@ const getMessagesOfaConversation = asyncHandler(async (req, res) => {
 
   const messages = await Message.find({
     conversation: conversationId,
-  }).sort({ createdAt: 1 });
+  })
+    .sort({ createdAt: 1 })
+    .populate("sender", "fullName");
 
   return res
     .status(200)

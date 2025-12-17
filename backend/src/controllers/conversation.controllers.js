@@ -67,8 +67,8 @@ const listUserConversation = asyncHandler(async (req, res) => {
     participants: req.user._id,
   })
     .sort({ lastMessageAt: -1 })
-    .populate("participants", "username avatar")
-    .populate("lastMessage");
+    .populate("participants", "username avatar fullName")
+    .populate("lastMessage", "text");
 
   return res
     .status(200)
