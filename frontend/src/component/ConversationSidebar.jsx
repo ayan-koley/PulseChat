@@ -5,50 +5,20 @@ import { DB_URI } from "../constant.js";
 import { useSelector } from "react-redux";
 import UserItem from "./UserItem.jsx";
 import { socket } from "../socket.js";
+import { timeFormater } from '../utils/timeFormater.js'
 
-const dummyConversations = [
-  {
-    _id: "c1",
-    user: {
-      _id: "u2",
-      name: "Ayan",
-      avatar: "https://i.pravatar.cc/150?img=3",
-    },
-    lastMessage: "Hey! Are you there?",
-    lastMessageAt: "10:32 AM",
-    unreadCount: 2,
-  },
-  {
-    _id: "c2",
-    user: {
-      _id: "u3",
-      name: "Rahul",
-      avatar: "https://i.pravatar.cc/150?img=5",
-    },
-    lastMessage: "Let’s meet tomorrow",
-    lastMessageAt: "Yesterday",
-    unreadCount: 0,
-  },
-  {
-    _id: "c3",
-    user: {
-      _id: "u4",
-      name: "Sneha",
-      avatar: "https://i.pravatar.cc/150?img=8",
-    },
-    lastMessage: "Okay 👍",
-    lastMessageAt: "Mon",
-    unreadCount: 1,
-  },
-];
-
-export default function ConversationSidebar() {
+export default function ConversationSidebar({ onSelectConversation, selectedConversationId }) {
   const [activeId, setActiveId] = useState("c1");
-  const { accessToken } = useSelector((s) => s.auth);
+  const { accessToken, status } = useSelector((s) => s.auth);
 
   const [users, setUsers] = useState([]);
   const [query, setQuery] = useState("");
   const debounceQuery = useDebounce(query, 500);
+
+
+  const[listUserConversation, setListUserConversation] = useState([]);
+  const { user: loginUser } = useSelector(s => s.auth);
+
 
   useEffect(() => {
     if (!debounceQuery.trim()) {
@@ -90,9 +60,8 @@ export default function ConversationSidebar() {
       
       socket.emit("conversation:join", { conversationId: conversation._id });
 
-
     } catch (error) {
-      
+      console.error("ERROR on joining user ", error.message);
     }
   }
 
@@ -105,6 +74,27 @@ export default function ConversationSidebar() {
 
     return () => socket.off('user_joined');
   }, [])
+
+  useEffect(() => {
+    // fetch list of conversations
+    const fetchListOfConversations = async() => {
+      try {
+        const response = await axios.get(`${DB_URI}/conversation`, {
+          withCredentials: true
+        }).then(d => d.data).then(d => d.data).then(d => d.listConversations);
+
+        if(!response) {
+          console.error('Response is undefined');
+        }
+
+        setListUserConversation(response);
+      } catch (err) {
+        console.error("ERROR on fetching conversations ", err.message);
+      }
+    }
+    // store in a state and based on state list message conversations
+    if(status) fetchListOfConversations();
+  }, [status])
 
 
   return (
@@ -145,24 +135,39 @@ export default function ConversationSidebar() {
 
       {/* Conversation List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {dummyConversations.map((conv) => {
-          const isActive = conv._id === activeId;
+        {listUserConversation.length > 0 && listUserConversation.map((conv) => {
+          // const isActive = conv._id === activeId;
+
+          
+          const [recievingUser] = conv?.participants?.filter(p_user => p_user._id !== loginUser._id);
+
+          console.log(conv.lastMessage);
 
           return (
             <div
               key={conv._id}
-              onClick={() => setActiveId(conv._id)}
+              onClick={() => {
+                joinConversation(recievingUser._id);
+                onSelectConversation(conv._id);
+              }} 
               className={`flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all duration-200
-                ${
+                ${selectedConversationId === conv._id && 'bg-gray-600'}
+                
+                `
+                /**
+                  ${
                   isActive
                     ? "bg-blue-900/30 border border-blue-700/50"
                     : "border border-transparent hover:bg-neutral-800/60 hover:border-neutral-700/40"
-                }`}
+                }
+                 */
+
+              }
             >
               {/* Avatar */}
               <img
-                src={conv.user.avatar}
-                alt={conv.user.name}
+                src={recievingUser.avatar.url}
+                alt={recievingUser.fullName}
                 className="w-10 h-10 rounded-full object-cover ring-2 ring-neutral-700/50"
               />
 
@@ -170,23 +175,23 @@ export default function ConversationSidebar() {
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between items-center">
                   <p className="font-medium truncate text-neutral-100">
-                    {conv.user.name}
+                    {recievingUser.fullName}
                   </p>
                   <span className="text-xs text-neutral-500">
-                    {conv.lastMessageAt}
+                    {timeFormater(conv.lastMessageAt)}
                   </span>
                 </div>
 
                 <div className="flex justify-between items-center">
                   <p className="text-sm text-neutral-400 truncate">
-                    {conv.lastMessage}
+                    {conv?.lastMessage?.text}
                   </p>
 
-                  {conv.unreadCount > 0 && (
+                  {/* {conv.unreadCount > 0 && (
                     <span className="ml-2 text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full flex-shrink-0">
                       {conv.unreadCount}
                     </span>
-                  )}
+                  )} */}
                 </div>
               </div>
             </div>
